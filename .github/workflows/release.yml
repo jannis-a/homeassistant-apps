@@ -1,0 +1,51 @@
+# Publishes the version in each app's config.yaml (publish.yml). Versions
+# that are already published are skipped.
+name: release
+
+on:
+  push:
+    branches: [main]
+    # Read from the repository or not part of an image; like ci.yml's
+    # version check.
+    paths-ignore:
+      - '*.md'
+      - '*/*.md'
+      - '*/icon.png'
+      - '*/logo.png'
+      - '*/test.sh'
+      - renovate.json5
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  apps:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      apps: ${{ steps.find.outputs.apps }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: find
+        run: echo "apps=$(find . -mindepth 2 -maxdepth 2 -name config.yaml -printf '%P\n' | xargs -rn1 dirname | jq -Rnc '[inputs]')" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: apps
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.apps.outputs.apps) }}
+    permissions:
+      contents: write # the tag
+      id-token: write # keyless Cosign signatures
+      packages: write
+    uses: ./.github/workflows/publish.yml
+    with:
+      app: ${{ matrix.app }}

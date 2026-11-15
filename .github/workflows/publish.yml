@@ -1,0 +1,116 @@
+# Publishes one app's version: signed images per architecture and a
+# multi-arch manifest on ghcr.io (the image in its config.yaml), and the tag
+# <slug>-v<version>. Skipped if the version is already published.
+name: publish
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      slug: ${{ steps.info.outputs.slug }}
+      version: ${{ steps.info.outputs.version }}
+      name: ${{ steps.info.outputs.name }}
+      description: ${{ steps.info.outputs.description }}
+      architectures: ${{ steps.info.outputs.architectures }}
+      image_name: ${{ steps.info.outputs.image_name }}
+      registry_prefix: ${{ steps.info.outputs.registry_prefix }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: info
+        env:
+          CONFIG: ${{ inputs.app }}/config.yaml
+        run: |
+          image=$(yq .image "$CONFIG")
+          {
+            echo "slug=$(yq .slug "$CONFIG")"
+            echo "version=$(yq .version "$CONFIG")"
+            echo "name=$(yq .name "$CONFIG")"
+            echo "description=$(yq .description "$CONFIG")"
+            echo "architectures=$(yq -o json -I 0 .arch "$CONFIG")"
+            echo "image_name=${image##*/}"
+            echo "registry_prefix=${image%/*}"
+          } >> "$GITHUB_OUTPUT"
+      - id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
+        with:
+          architectures: ${{ steps.info.outputs.architectures }}
+          image-name: ${{ steps.info.outputs.image_name }}
+          registry-prefix: ${{ steps.info.outputs.registry_prefix }}
+
+  build:
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write # keyless Cosign signatures
+      packages: write
+    strategy:
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          context: ./${{ inputs.app }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.prepare.outputs.version }}
+            latest
+          version: ${{ needs.prepare.outputs.version }}
+          labels: |
+            io.hass.type=app
+            io.hass.name=${{ needs.prepare.outputs.name }}
+            io.hass.description=${{ needs.prepare.outputs.description }}
+            io.hass.url=https://github.com/${{ github.repository }}/tree/main/${{ inputs.app }}
+          cache-gha-scope: ${{ inputs.app }}-${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          skip-existing: ${{ needs.prepare.outputs.version }}
+          push: "true"
+
+  manifest:
+    needs: [prepare, build]
+    runs-on: ubuntu-26.04
+    permissions:
+      id-token: write # keyless Cosign signatures
+      packages: write
+    steps:
+      - uses: home-assistant/builder/actions/publish-multi-arch-manifest@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
+        with:
+          architectures: ${{ needs.prepare.outputs.architectures }}
+          image-name: ${{ needs.prepare.outputs.image_name }}
+          registry-prefix: ${{ needs.prepare.outputs.registry_prefix }}
+          image-tags: |
+            ${{ needs.prepare.outputs.version }}
+            latest
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          skip-existing: ${{ needs.prepare.outputs.version }}
+
+  tag:
+    needs: [prepare, manifest]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - env:
+          TAG: ${{ needs.prepare.outputs.slug }}-v${{ needs.prepare.outputs.version }}
+        run: |
+          git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null && exit 0
+          git tag "$TAG"
+          git push origin "$TAG"

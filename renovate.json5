@@ -1,0 +1,61 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:best-practices',
+  ],
+  labels: [
+    'dependencies',
+  ],
+  enabledManagers: [
+    'dockerfile',
+    'github-actions',
+    'custom.regex',
+  ],
+  customManagers: [
+    {
+      // The app's version is <Alloy version>.<release>: an Alloy update
+      // resets the release to 0, so Home Assistant offers the update.
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^alloy/config\\.yaml$/',
+      ],
+      matchStrings: [
+        'version: "(?<version>\\d+\\.\\d+\\.\\d+)\\.\\d+"',
+      ],
+      depNameTemplate: 'docker.io/grafana/alloy',
+      datasourceTemplate: 'docker',
+      // Image tags carry a v, the app's version does not.
+      currentValueTemplate: 'v{{{version}}}',
+      autoReplaceStringTemplate: 'version: "{{{replace \'^v\' \'\' newValue}}}.0"',
+    },
+  ],
+  packageRules: [
+    // The app's version has no room for the digest the Dockerfile pins.
+    {
+      matchManagers: [
+        'custom.regex',
+      ],
+      pinDigests: false,
+    },
+    // The image and the app's version in one pull request, two weeks
+    // after the release; minor and patch updates merged once the checks
+    // (alloy validate against the new version) pass.
+    {
+      matchPackageNames: [
+        'docker.io/grafana/alloy',
+      ],
+      groupName: 'alloy',
+      minimumReleaseAge: '14 days',
+    },
+    {
+      matchPackageNames: [
+        'docker.io/grafana/alloy',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      automerge: true,
+    },
+  ],
+}

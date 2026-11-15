@@ -1,0 +1,202 @@
+// Metrics and the journal of Home Assistant OS. Neither loses data while the
+// endpoints are unreachable: metrics wait in the WAL, logs in the journal.
+// The options come from run.sh.
+
+logging {
+	level = sys.env("LOG_LEVEL")
+}
+
+// ── Metrics ───────────────────────────────────────
+
+// Everything Home Assistant exposes (prometheus: in configuration.yaml),
+// through the Supervisor's Core API proxy.
+prometheus.scrape "homeassistant" {
+	targets = [{
+		__address__      = "supervisor",
+		__metrics_path__ = "/core/api/prometheus",
+	}]
+	job_name        = "homeassistant"
+	scrape_interval = "15s"
+
+	authorization {
+		type        = "Bearer"
+		credentials = sys.env("SUPERVISOR_TOKEN")
+	}
+
+	forward_to = [prometheus.relabel.default.receiver]
+}
+
+// The host (host network, global /proc and /sys).
+prometheus.exporter.unix "default" {
+	// The app's own mounts: /data for the data partition; the files and
+	// directories the Supervisor binds from it, and Docker's init, left out.
+	filesystem {
+		mount_points_exclude = "^/(dev|etc|proc|run|sys|usr|var)($|/)"
+	}
+
+	netclass {
+		ignored_devices = "^(veth|hassio|docker).*"
+	}
+
+	netdev {
+		device_exclude = "^(veth|hassio|docker).*"
+	}
+}
+
+// Exporter targets bring a job of their own (integrations/unix).
+discovery.relabel "unix" {
+	targets = prometheus.exporter.unix.default.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "integrations/node_exporter"
+	}
+}
+
+prometheus.scrape "unix" {
+	targets         = discovery.relabel.unix.output
+	scrape_interval = "15s"
+	forward_to      = [prometheus.relabel.default.receiver]
+}
+
+// The containers, from the host's cgroups (run.sh mounts them) and the
+// host's Docker and containerd, reached through PID 1's root (host_pid).
+prometheus.exporter.cadvisor "default" {
+	docker_host            = "unix:///proc/1/root/run/docker.sock"
+	containerd_host        = "/proc/1/root/run/containerd/containerd.sock"
+	docker_only            = true
+	store_container_labels = false
+	// What the allow list below needs; not disk, whose container layers it
+	// can't stat.
+	enabled_metrics = ["cpu", "diskIO", "memory", "network"]
+}
+
+discovery.relabel "cadvisor" {
+	targets = prometheus.exporter.cadvisor.default.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "integrations/docker"
+	}
+}
+
+prometheus.scrape "cadvisor" {
+	targets         = discovery.relabel.cadvisor.output
+	scrape_interval = "15s"
+	forward_to      = [prometheus.relabel.cadvisor.receiver]
+}
+
+// Like the Kubernetes pods' cAdvisor metrics (Grafana's k8s-monitoring
+// chart): its allow list with up and scrape_samples_scraped, which the chart
+// adds to every list, the Docker name as container, and no series without a
+// container or image, cAdvisor's sums over whole cgroups.
+prometheus.relabel "cadvisor" {
+	rule {
+		source_labels = ["__name__"]
+		regex         = "up|scrape_samples_scraped|container_cpu_cfs_periods_total|container_cpu_cfs_throttled_periods_total|container_cpu_usage_seconds_total|container_fs_reads_bytes_total|container_fs_reads_total|container_fs_writes_bytes_total|container_fs_writes_total|container_memory_cache|container_memory_rss|container_memory_swap|container_memory_usage_bytes|container_memory_working_set_bytes|container_network_receive_bytes_total|container_network_receive_packets_dropped_total|container_network_receive_packets_total|container_network_transmit_bytes_total|container_network_transmit_packets_dropped_total|container_network_transmit_packets_total|machine_memory_bytes"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["name"]
+		target_label  = "container"
+	}
+
+	rule {
+		action = "labeldrop"
+		regex  = "name"
+	}
+
+	rule {
+		source_labels = ["__name__", "container"]
+		separator     = "@"
+		regex         = "(container_cpu_.*|container_fs_.*|container_memory_.*)@"
+		action        = "drop"
+	}
+
+	rule {
+		source_labels = ["__name__", "image"]
+		separator     = "@"
+		regex         = "(container_cpu_.*|container_fs_.*|container_memory_.*|container_network_.*)@"
+		action        = "drop"
+	}
+
+	forward_to = [prometheus.relabel.default.receiver]
+}
+
+prometheus.exporter.self "default" { }
+
+discovery.relabel "alloy" {
+	targets = prometheus.exporter.self.default.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "alloy"
+	}
+}
+
+prometheus.scrape "alloy" {
+	targets         = discovery.relabel.alloy.output
+	scrape_interval = "15s"
+	forward_to      = [prometheus.relabel.default.receiver]
+}
+
+// instance is the host, not the scrape address.
+prometheus.relabel "default" {
+	rule {
+		target_label = "instance"
+		replacement  = sys.env("INSTANCE")
+	}
+
+	forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+	endpoint {
+		url = sys.env("METRICS_URL")
+
+		authorization {
+			type        = "Bearer"
+			credentials = sys.env("METRICS_API_KEY")
+		}
+	}
+
+	// Unsent samples stay in the WAL for up to a week instead of 8h; it's
+	// retried until then.
+	wal {
+		max_keepalive_time = "168h"
+	}
+}
+
+// ── Logs ──────────────────────────────────────────
+
+// The host's journal: its systemd units, the kernel and all containers.
+// Unprocessed, each entry with all its fields as JSON, for a receiver to
+// label (DOCS.md). The position persists in /data, so it resumes where it
+// stopped; max_age only limits the first start.
+loki.source.journal "default" {
+	// The directory instead of the default, which needs /etc/machine-id;
+	// apps have none.
+	path           = "/var/log/journal"
+	max_age        = "168h"
+	format_as_json = true
+	// The host's name as for the metrics: early in boot, _HOSTNAME is still
+	// Home Assistant OS's default.
+	labels     = {instance = sys.env("INSTANCE")}
+	forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+	endpoint {
+		url = sys.env("LOGS_URL")
+
+		authorization {
+			type        = "Bearer"
+			credentials = sys.env("LOGS_API_KEY")
+		}
+
+		// Retried until the endpoint is back. The full queue then blocks
+		// loki.source.journal, so the journal buffers instead.
+		max_backoff_retries = 0
+	}
+}
