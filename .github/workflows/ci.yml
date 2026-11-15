@@ -1,0 +1,91 @@
+# Checks of every pull request and of main, for each app (a directory
+# with a config.yaml).
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apps:
+    runs-on: ubuntu-26.04
+    outputs:
+      apps: ${{ steps.find.outputs.apps }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: find
+        run: echo "apps=$(find . -mindepth 2 -maxdepth 2 -name config.yaml -printf '%P\n' | xargs -rn1 dirname | jq -Rnc '[inputs]')" >> "$GITHUB_OUTPUT"
+
+  lint:
+    needs: apps
+    strategy:
+      matrix:
+        app: ${{ fromJSON(needs.apps.outputs.apps) }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: frenck/action-addon-linter@b9cfd1bc62ba60d2c4fc96317b5f7ada5923f4a7 # v2.21.1
+        with:
+          path: ${{ matrix.app }}
+      - env:
+          APP: ${{ matrix.app }}
+        run: find "$APP" -name '*.sh' -exec shellcheck {} +
+
+  # A change of an app's image or config.yaml needs a new version,
+  # otherwise Home Assistant never offers the update. Documentation, icons
+  # and test.sh are read from the repository or not part of the image.
+  version:
+    if: github.event_name == 'pull_request'
+    needs: apps
+    strategy:
+      matrix:
+        app: ${{ fromJSON(needs.apps.outputs.apps) }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - env:
+          APP: ${{ matrix.app }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git cat-file -e "$BASE:$APP/config.yaml" 2>/dev/null || exit 0
+          git diff --quiet "$BASE" -- "$APP" \
+            ":!$APP/*.md" ":!$APP/icon.png" ":!$APP/logo.png" ":!$APP/test.sh" \
+            && exit 0
+          old=$(git show "$BASE:$APP/config.yaml" | yq .version)
+          new=$(yq .version "$APP/config.yaml")
+          echo "$APP: $old -> $new"
+          [ "$old" != "$new" ]
+
+  # The image for both architectures, and the app's test.sh against it.
+  build:
+    needs: apps
+    strategy:
+      matrix:
+        app: ${{ fromJSON(needs.apps.outputs.apps) }}
+        runner: [ubuntu-26.04, ubuntu-26.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          APP: ${{ matrix.app }}
+        run: |
+          docker build -t "$APP" "$APP"
+          if [ -x "$APP/test.sh" ]; then "$APP/test.sh" "$APP"; fi

@@ -1,0 +1,48 @@
+name: Grafana Alloy
+# <Alloy version>.<release>: Renovate sets it with every Alloy update
+# (renovate.json5), changes of the app itself raise the release. Four
+# parts, as Home Assistant compares a suffix like -10 below -9.
+version: "1.21.3.0"
+slug: alloy
+image: ghcr.io/jannis-a/ha-app-alloy
+description: Metrics and the journal of Home Assistant OS via remote write and Loki push
+url: https://github.com/jannis-a/homeassistant-apps/tree/main/alloy
+arch:
+  - aarch64
+  - amd64
+startup: services
+# The host's interfaces for node_exporter's network metrics.
+host_network: true
+# The host journal (/var/log/journal): systemd units, the kernel and every
+# container (Docker's log driver is journald, tagged with the container name).
+journald: true
+# cAdvisor (config.alloy): the host's PID namespace, SYS_PTRACE to enter its
+# cgroup namespace and SYS_ADMIN to mount the host's cgroups there (run.sh),
+# and its Docker and containerd sockets below /proc/1/root. All of it needs
+# protection mode off.
+privileged:
+  - SYS_ADMIN
+  - SYS_PTRACE
+host_pid: true
+apparmor: false
+# SUPERVISOR_TOKEN for Core's /api/prometheus through the Supervisor.
+homeassistant_api: true
+# Not the metrics' WAL: it can grow large during an outage and is useless in a
+# restore. The journal position stays, so a restore resumes from it instead of
+# reading max_age of the journal again.
+backup_exclude:
+  - alloy/prometheus.remote_write.default/**
+options:
+  instance: homeassistant
+  metrics_url: null
+  metrics_api_key: null
+  logs_url: null
+  logs_api_key: null
+  log_level: info
+schema:
+  instance: str
+  metrics_url: url
+  metrics_api_key: password
+  logs_url: url
+  logs_api_key: password
+  log_level: list(debug|info|warn|error)
