@@ -1,11 +1,10 @@
-# Checks of every pull request and of main, for each app (a directory
-# with a config.yaml).
+# Checks of every pull request, for each app (a directory with a
+# config.yaml). Not again on main: it only takes squash merges of pull
+# requests, and release.yml builds there anyway.
 name: ci
 
 on:
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
 
 permissions:
@@ -48,7 +47,6 @@ jobs:
   # otherwise Home Assistant never offers the update. Documentation, icons
   # and test.sh are read from the repository or not part of the image.
   version:
-    if: github.event_name == 'pull_request'
     needs: apps
     strategy:
       matrix:
