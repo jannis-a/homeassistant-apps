@@ -43,9 +43,9 @@ All of it carries `instance` from the options.
 |---|---|
 | `instance` | The `instance` label of all metrics and log entries. |
 | `metrics_url` | Prometheus remote write endpoint. |
-| `metrics_api_key` | Sent as bearer token (`Authorization: Bearer …`) with every remote write request. |
+| `metrics_token` | Sent as bearer token (`Authorization: Bearer …`) with every remote write request. |
 | `logs_url` | Loki push endpoint (`/loki/api/v1/push`). |
-| `logs_api_key` | Sent as bearer token (`Authorization: Bearer …`) with every push request. |
+| `logs_token` | Sent as bearer token (`Authorization: Bearer …`) with every push request. |
 | `log_level` | Alloy's own log level. |
 
 ## Outages
@@ -63,7 +63,7 @@ Home Assistant backups contain the journal position but not the metrics'
 write-ahead log: after a restore, the app continues reading the journal
 where the backup left it.
 
-Client errors (`4xx` other than `429`), such as a wrong API key, are not
+Client errors (`4xx` other than `429`), such as a wrong token, are not
 retried: the data is dropped. Check the app's log after changing the
 options.
 

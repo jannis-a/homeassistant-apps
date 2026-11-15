@@ -5,14 +5,14 @@ configuration:
   metrics_url:
     name: Metrics URL
     description: Prometheus remote write endpoint, e.g. https://metrics.example.com/api/v1/write.
-  metrics_api_key:
-    name: Metrics API key
+  metrics_token:
+    name: Metrics token
     description: Sent as bearer token with every remote write request.
   logs_url:
     name: Logs URL
     description: Loki push endpoint, e.g. https://logs.example.com/loki/api/v1/push.
-  logs_api_key:
-    name: Logs API key
+  logs_token:
+    name: Logs token
     description: Sent as bearer token with every push request.
   log_level:
     name: Log level

@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 alloy() {
   docker run --rm -v "$PWD:/app:ro" \
     -e SUPERVISOR_TOKEN=x -e INSTANCE=x -e LOG_LEVEL=info \
-    -e METRICS_URL=http://x -e METRICS_API_KEY=x -e LOGS_URL=http://x -e LOGS_API_KEY=x \
+    -e METRICS_URL=http://x -e METRICS_TOKEN=x -e LOGS_URL=http://x -e LOGS_TOKEN=x \
     --entrypoint alloy "$image" "$@"
 }
 

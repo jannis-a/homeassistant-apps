@@ -157,7 +157,7 @@ prometheus.remote_write "default" {
 
 		authorization {
 			type        = "Bearer"
-			credentials = sys.env("METRICS_API_KEY")
+			credentials = sys.env("METRICS_TOKEN")
 		}
 	}
 
@@ -192,7 +192,7 @@ loki.write "default" {
 
 		authorization {
 			type        = "Bearer"
-			credentials = sys.env("LOGS_API_KEY")
+			credentials = sys.env("LOGS_TOKEN")
 		}
 
 		// Retried until the endpoint is back. The full queue then blocks
