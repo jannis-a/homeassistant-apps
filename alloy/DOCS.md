@@ -73,7 +73,9 @@ The app doesn't label the journal entries itself. Each line is one
 journal entry with all its fields as a JSON object (`MESSAGE`, `PRIORITY`,
 `_HOSTNAME`, `_SYSTEMD_UNIT`, `CONTAINER_NAME`, `SYSLOG_IDENTIFIER`, ...),
 and the only label is `instance`. The receiving side labels them, so changes
-of the labels don't need an update of the app. With Alloy as the receiver,
+of the labels don't need an update of the app. The app only drops a
+warning of its own cAdvisor that the Raspberry Pi 5 repeats every 5
+minutes ("Found node without any CPU"). With Alloy as the receiver,
 that's a `loki.source.api` with `use_incoming_timestamp = true` (entries
 arrive late after an outage), followed by `stage.json` on the fields and
 `stage.output` on `MESSAGE`. Home Assistant and its Supervisor color their

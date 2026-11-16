@@ -2,7 +2,7 @@ name: Grafana Alloy
 # <Alloy version>.<release>: Renovate sets it with every Alloy update
 # (renovate.json5), changes of the app itself raise the release. Four
 # parts, as Home Assistant compares a suffix like -10 below -9.
-version: "1.21.3.1"
+version: "1.21.3.2"
 slug: alloy
 image: ghcr.io/jannis-a/ha-app-alloy
 description: Metrics and the journal of Home Assistant OS via remote write and Loki push

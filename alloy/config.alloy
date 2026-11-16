@@ -171,7 +171,7 @@ prometheus.remote_write "default" {
 // ── Logs ──────────────────────────────────────────
 
 // The host's journal: its systemd units, the kernel and all containers.
-// Unprocessed, each entry with all its fields as JSON, for a receiver to
+// Unlabeled, each entry with all its fields as JSON, for a receiver to
 // label (DOCS.md). The position persists in /data, so it resumes where it
 // stopped; max_age only limits the first start.
 loki.source.journal "default" {
@@ -183,6 +183,19 @@ loki.source.journal "default" {
 	// The host's name as for the metrics: early in boot, _HOSTNAME is still
 	// Home Assistant OS's default.
 	labels     = {instance = sys.env("INSTANCE")}
+	forward_to = [loki.process.default.receiver]
+}
+
+// Noise this app causes itself. cAdvisor refreshes its machine info every
+// 5 minutes (not configurable) and warns once per NUMA node without CPUs:
+// the Raspberry Pi 5's firmware boots with numa=fake=8 for memory
+// bandwidth, so nodes 1-7 have none. The entries stay in the journal.
+loki.process "default" {
+	stage.drop {
+		expression          = "Found node without any CPU, nodeDir: "
+		drop_counter_reason = "cadvisor_numa_fake"
+	}
+
 	forward_to = [loki.write.default.receiver]
 }
 
