@@ -4,6 +4,11 @@ Versions are `<Alloy version>.<release>`. A version ending in `.0` without
 an entry here only updates Alloy: see its
 [release notes](https://github.com/grafana/alloy/releases).
 
+## 1.21.3.2
+
+- cAdvisor's "Found node without any CPU" warnings, 7 every 5 minutes on a
+  Raspberry Pi 5, are no longer sent to Loki. They stay in the journal.
+
 ## 1.21.3.1
 
 - The options `metrics_api_key` and `logs_api_key` are now `metrics_token`
